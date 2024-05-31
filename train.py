@@ -22,19 +22,18 @@ from transformers import BertTokenizer
 # from pytorch_transformers.modeling_bert import BertModel
 from seqeval.metrics import classification_report
 from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler, TensorDataset)
-
 from utils.data_utils import ATEPCProcessor, convert_examples_to_features
 from model.lcf_atepc import LCF_ATEPC
-
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 logger.addHandler(logging.StreamHandler(sys.stdout))
-
 os.makedirs('logs', exist_ok=True)
 time = '{}'.format(strftime("%y%m%d-%H%M%S", localtime()))
 log_file = 'logs/{}.log'.format(time)
 logger.addHandler(logging.FileHandler(log_file))
 logger.info('log file: {}'.format(log_file))
+
+
 
 def main(config):
     args = config
@@ -56,27 +55,30 @@ def main(config):
     label_list = processor.get_labels()
     num_labels = len(label_list) + 1
 
-    datasets = {
-        'camera': "atepc_datasets/camera",
+    """
+    'camera': "atepc_datasets/camera",
         'car': "atepc_datasets/car",
         'phone': "atepc_datasets/phone",
         'notebook': "atepc_datasets/notebook",
         'laptop': "atepc_datasets/laptop",
-        'restaurant': "atepc_datasets/restaurant",
         'twitter': "atepc_datasets/twitter",
         'mixed': "atepc_datasets/mixed",
-    }
-    pretrained_bert_models = {
-        'camera': "bert-base-chinese",
+         'camera': "bert-base-chinese",
         'car': "bert-base-chinese",
         'phone': "bert-base-chinese",
         'notebook': "bert-base-chinese",
         'laptop': "bert-base-uncased",
-        'restaurant': "bert-base-uncased",
         # for loading domain-adapted BERT
         # 'restaurant': "../bert_pretrained_restaurant",
         'twitter': "bert-base-uncased",
         'mixed': "bert-base-multilingual-uncased",
+    """
+
+    datasets = {
+        'restaurant': "atepc_datasets/restaurant",
+    }
+    pretrained_bert_models = {
+        'restaurant': "bert-base-uncased",
     }
 
     args.bert_model = pretrained_bert_models[args.dataset]
@@ -214,11 +216,11 @@ def main(config):
         model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
         model_to_save.save_pretrained(path)
         tokenizer.save_pretrained(path)
-        label_map = {i : label for i, label in enumerate(label_list,1)}
-        model_config = {"bert_model":args.bert_model,"do_lower": True,"max_seq_length":args.max_seq_length,"num_labels":len(label_list)+1,"label_map":label_map}
-        json.dump(model_config,open(os.path.join(path,"config.json"),"w"))
+        label_map = {i: label for i, label in enumerate(label_list, 1)}
+        model_config = {"bert_model": args.bert_model, "do_lower": True, "max_seq_length": args.max_seq_length,
+                        "num_labels": len(label_list) + 1, "label_map": label_map}
+        json.dump(model_config, open(os.path.join(path, "config.json"), "w"))
         logger.info('save model to: {}'.format(path))
-
     def train():
         train_features = convert_examples_to_features(
             train_examples, label_list, args.max_seq_length, tokenizer)
@@ -235,13 +237,11 @@ def main(config):
         all_polarities = torch.tensor([f.polarities for f in train_features], dtype=torch.long)
         train_data = TensorDataset(all_spc_input_ids, all_input_mask, all_segment_ids,
                                    all_label_ids, all_polarities, all_valid_ids, all_lmask_ids)
-
         train_sampler = SequentialSampler(train_data)
         train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size)
         max_apc_test_acc = 0
         max_apc_test_f1 = 0
         max_ate_test_f1 = 0
-
         global_step = 0
         for epoch in range(int(args.num_train_epochs)):
             logger.info('#' * 80)
@@ -262,7 +262,7 @@ def main(config):
                 optimizer.zero_grad()
                 global_step += 1
                 if global_step % args.eval_steps == 0:
-                    if epoch >= args.num_train_epochs-2 or args.num_train_epochs<=2:
+                    if epoch >= args.num_train_epochs - 2 or args.num_train_epochs <= 2:
                         # evaluate in last 2 epochs
                         apc_result, ate_result = evaluate(eval_ATE=not args.use_bert_spc)
 
@@ -332,41 +332,38 @@ def parse_experiments(path):
         parser.add_argument("--eval_steps", default=20, help="evaluate per steps")
         parser.add_argument('--gradient_accumulation_steps', type=int, default=1,
                             help="Number of updates steps to accumulate before performing a backward/update pass.")
-
+        parser.add_argument("--config_path", default='experiments.json', type=str,
+                            help='Path of experiments config file')
         configs.append(parser.parse_args())
     return configs
-
 if __name__ == "__main__":
-
     experiments = argparse.ArgumentParser()
-    experiments.add_argument('--config_path', default='experiments.json', type=str, help='Path of experiments config file')
+    experiments.add_argument('--config_path', default='experiments.json', type=str,
+                             help='Path of experiments config file')
     experiments = experiments.parse_args()
-
-    from utils.Pytorch_GPUManager import GPUManager
-
-    index = GPUManager().auto_choice()
-    device = torch.device("cuda:" + str(index) if torch.cuda.is_available() else "cpu")
+    # from utils.Pytorch_GPUManager import GPUManager
+    # index = GPUManager().auto_choice()
+    # device = torch.device("cuda" + str(index) if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     exp_configs = parse_experiments(experiments.config_path)
     n = 5
     for config in exp_configs:
-            logger.info('-'*80)
-            logger.info('Config {} (totally {} configs)'.format(exp_configs.index(config)+1,len(exp_configs)))
-            results = []
-            max_apc_test_acc, max_apc_test_f1, max_ate_test_f1 = 0,0,0
-            for i in range(n):
-                config.device = device
-                config.seed = i + 1
-                logger.info('No.{} training process of {}'.format(i + 1, n))
-                apc_test_acc, apc_test_f1, ate_test_f1 = main(config)
-
-                if apc_test_acc > max_apc_test_acc:
-                    max_apc_test_acc = apc_test_acc
-                if apc_test_f1 > max_apc_test_f1:
-                    max_apc_test_f1 = apc_test_f1
-                if ate_test_f1 > max_ate_test_f1:
-                    max_ate_test_f1 = ate_test_f1
-                logger.info('max_ate_test_f1:{} max_apc_test_acc: {}\tmax_apc_test_f1: {} \t'
-                            .format(max_ate_test_f1, max_apc_test_acc, max_apc_test_f1))
-
+        logger.info('-' * 80)
+        logger.info('Config {} (totally {} configs)'.format(exp_configs.index(config) + 1, len(exp_configs)))
+        results = []
+        max_apc_test_acc, max_apc_test_f1, max_ate_test_f1 = 0, 0, 0
+        for i in range(n):
+            config.device = device
+            config.seed = i + 1
+            logger.info('No.{} training process of {}'.format(i + 1, n))
+            apc_test_acc, apc_test_f1, ate_test_f1 = main(config)
+            if apc_test_acc > max_apc_test_acc:
+                max_apc_test_acc = apc_test_acc
+            if apc_test_f1 > max_apc_test_f1:
+                max_apc_test_f1 = apc_test_f1
+            if ate_test_f1 > max_ate_test_f1:
+                max_ate_test_f1 = ate_test_f1
+            logger.info('max_ate_test_f1:{} max_apc_test_acc: {}\tmax_apc_test_f1: {} \t'
+                        .format(max_ate_test_f1, max_apc_test_acc, max_apc_test_f1))
 
 

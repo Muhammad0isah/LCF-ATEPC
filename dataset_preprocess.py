@@ -27,7 +27,6 @@ def assemble_aspects(fname):
         for sample in same_samples:
             # print(sample)
             polarities_tmp = copy.deepcopy(polarities)
-
             try:
                 asp_begin = (sample[0].split().index('$T$'))
                 asp_end = sample[0].split().index('$T$')+len(sample[1].split())
@@ -40,9 +39,7 @@ def assemble_aspects(fname):
                 samples.append([text, tags, polarities_tmp])
             except:
                 print(sample[0])
-
         return samples
-
     samples = []
     aspects_in_one_sentence = []
     for i in range(0, len(lines), 3):
